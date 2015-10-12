@@ -140,6 +140,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       executorId: String,
       hostname: String,
       cores: Int,
+      tasksPerCore: Int,
       appId: String,
       workerUrl: Option[String],
       userClassPath: Seq[URL]) {
@@ -181,7 +182,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       }
 
       val env = SparkEnv.createExecutorEnv(
-        driverConf, executorId, hostname, port, cores, isLocal = false)
+        driverConf, executorId, hostname, port, cores * tasksPerCore, isLocal = false)
 
       // SparkEnv sets spark.driver.port so it shouldn't be 0 anymore.
       val boundPort = env.conf.getInt("spark.executor.port", 0)
@@ -190,7 +191,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       // Start the CoarseGrainedExecutorBackend endpoint.
       val sparkHostPort = hostname + ":" + boundPort
       env.rpcEnv.setupEndpoint("Executor", new CoarseGrainedExecutorBackend(
-        env.rpcEnv, driverUrl, executorId, sparkHostPort, cores, userClassPath, env))
+        env.rpcEnv, driverUrl, executorId, sparkHostPort, cores * tasksPerCore, userClassPath, env))
       workerUrl.foreach { url =>
         env.rpcEnv.setupEndpoint("WorkerWatcher", new WorkerWatcher(env.rpcEnv, url))
       }
@@ -204,6 +205,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
     var executorId: String = null
     var hostname: String = null
     var cores: Int = 0
+    var tasksPerCore: Int = 1
     var appId: String = null
     var workerUrl: Option[String] = None
     val userClassPath = new mutable.ListBuffer[URL]()
@@ -222,6 +224,9 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
           argv = tail
         case ("--cores") :: value :: tail =>
           cores = value.toInt
+          argv = tail
+        case ("--tasks-per-core") :: value :: tail =>
+          tasksPerCore = value.toInt
           argv = tail
         case ("--app-id") :: value :: tail =>
           appId = value
@@ -242,12 +247,12 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       }
     }
 
-    if (driverUrl == null || executorId == null || hostname == null || cores <= 0 ||
+    if (driverUrl == null || executorId == null || hostname == null || cores <= 0 || tasksPerCore <= 0 ||
       appId == null) {
       printUsageAndExit()
     }
 
-    run(driverUrl, executorId, hostname, cores, appId, workerUrl, userClassPath)
+    run(driverUrl, executorId, hostname, cores, tasksPerCore, appId, workerUrl, userClassPath)
   }
 
   private def printUsageAndExit() = {
@@ -261,6 +266,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       |   --executor-id <executorId>
       |   --hostname <hostname>
       |   --cores <cores>
+      |   --task-per-core <tasks>
       |   --app-id <appid>
       |   --worker-url <workerUrl>
       |   --user-class-path <url>
