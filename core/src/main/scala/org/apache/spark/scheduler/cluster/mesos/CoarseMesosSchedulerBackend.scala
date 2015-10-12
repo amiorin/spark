@@ -59,6 +59,7 @@ private[spark] class CoarseMesosSchedulerBackend(
 
   // Maximum number of cores to acquire (TODO: we'll need more flexible controls here)
   val maxCores = conf.get("spark.cores.max", Int.MaxValue.toString).toInt
+  val tasksPerCore = conf.get("spark.tasks.perCore", 1.toString).toInt
 
   // If shuffle service is enabled, the Spark driver will register with the shuffle service.
   // This is for cleaning up shuffle files reliably.
@@ -131,7 +132,7 @@ private[spark] class CoarseMesosSchedulerBackend(
     startScheduler(driver)
   }
 
-  def createCommand(offer: Offer, numCores: Int, taskId: Int): CommandInfo = {
+  def createCommand(offer: Offer, numCores: Int, tasksPerCore: Int, taskId: Int): CommandInfo = {
     val executorSparkHome = conf.getOption("spark.mesos.executor.home")
       .orElse(sc.getSparkHome())
       .getOrElse {
@@ -178,6 +179,7 @@ private[spark] class CoarseMesosSchedulerBackend(
         s" --executor-id ${offer.getSlaveId.getValue}" +
         s" --hostname ${offer.getHostname}" +
         s" --cores $numCores" +
+        s" --tasks-per-core $tasksPerCore" +
         s" --app-id $appId")
     } else {
       // Grab everything to the first '.'. We'll use that and '*' to
@@ -191,6 +193,7 @@ private[spark] class CoarseMesosSchedulerBackend(
         s" --executor-id $executorId" +
         s" --hostname ${offer.getHostname}" +
         s" --cores $numCores" +
+        s" --tasks-per-core $tasksPerCore" +
         s" --app-id $appId")
       command.addUris(CommandInfo.URI.newBuilder().setValue(uri.get))
     }
@@ -262,7 +265,7 @@ private[spark] class CoarseMesosSchedulerBackend(
           val taskBuilder = MesosTaskInfo.newBuilder()
             .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
             .setSlaveId(offer.getSlaveId)
-            .setCommand(createCommand(offer, cpusToUse + extraCoresPerSlave, taskId))
+            .setCommand(createCommand(offer, cpusToUse + extraCoresPerSlave, tasksPerCore, taskId))
             .setName("Task " + taskId)
             .addAllResources(cpuResourcesToUse)
             .addAllResources(memResourcesToUse)
